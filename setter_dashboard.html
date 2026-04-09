@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setter Tracking Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f3; color: #1a1a1a; min-height: 100vh; }
+  .page { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; flex-wrap: wrap; gap: 12px; }
+  .header h1 { font-size: 20px; font-weight: 600; color: #1a1a1a; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .last-updated { font-size: 12px; color: #888; }
+  .refresh-btn { height: 34px; padding: 0 14px; border: 1px solid #d0d0d0; border-radius: 8px; background: #fff; color: #333; font-size: 13px; cursor: pointer; transition: background 0.15s; }
+  .refresh-btn:hover { background: #f0f0f0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 1.5rem; align-items: flex-end; background: #fff; border-radius: 12px; padding: 1rem 1.25rem; border: 1px solid #e8e8e8; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+  .ctrl-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+  select { height: 36px; padding: 0 10px; border: 1px solid #d0d0d0; border-radius: 8px; background: #fff; color: #1a1a1a; font-size: 14px; cursor: pointer; min-width: 150px; }
+  select:hover { border-color: #999; }
+  .week-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { padding: 5px 12px; border-radius: 20px; font-size: 13px; border: 1px solid #d0d0d0; background: #fff; color: #666; cursor: pointer; transition: all 0.15s; user-select: none; }
+  .pill:hover { border-color: #185FA5; color: #185FA5; }
+  .pill.active { background: #185FA5; border-color: #185FA5; color: #fff; }
+
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 1.5rem; }
+  .metric { background: #fff; border-radius: 12px; padding: 1.25rem; text-align: center; border: 1px solid #e8e8e8; }
+  .metric-label { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .metric-val { font-size: 28px; font-weight: 600; color: #1a1a1a; }
+  .metric-sub { font-size: 12px; color: #999; margin-top: 3px; }
+
+  .card { background: #fff; border-radius: 12px; padding: 1.25rem; border: 1px solid #e8e8e8; margin-bottom: 1.25rem; }
+  .section-title { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+
+  .funnel-bars { display: flex; flex-direction: column; gap: 10px; }
+  .funnel-row { display: flex; align-items: center; gap: 10px; }
+  .funnel-bar-label { font-size: 13px; color: #666; width: 110px; text-align: right; flex-shrink: 0; }
+  .funnel-bar-track { flex: 1; height: 30px; background: #f5f5f3; border-radius: 5px; overflow: hidden; }
+  .funnel-bar-fill { height: 100%; border-radius: 5px; display: flex; align-items: center; padding-left: 10px; transition: width 0.4s ease; }
+  .funnel-bar-text { font-size: 13px; font-weight: 500; color: #fff; white-space: nowrap; }
+  .funnel-pct { font-size: 13px; color: #888; width: 50px; flex-shrink: 0; }
+  .drop-arrow { text-align: center; font-size: 12px; color: #bbb; padding-left: 120px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #666; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .chart-wrap { position: relative; width: 100%; height: 240px; }
+
+  .status { text-align: center; padding: 3rem; font-size: 14px; color: #888; background: #fff; border-radius: 12px; border: 1px solid #e8e8e8; }
+  .status.error { color: #c0392b; }
+
+  @media (max-width: 600px) {
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .metric:last-child { grid-column: span 2; }
+    .controls { flex-direction: column; }
+    select { min-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <h1>Setter Tracking Dashboard</h1>
+    <div class="header-right">
+      <span class="last-updated" id="last-updated"></span>
+      <button class="refresh-btn" id="refresh-btn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div id="status-msg" class="status">Loading data from Google Sheets...</div>
+
+  <div id="dashboard" style="display:none">
+    <div class="controls">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Setter</span>
+        <select id="setter-select"></select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Month</span>
+        <select id="month-select"></select>
+      </div>
+      <div class="ctrl-group" style="flex:1;min-width:200px">
+        <span class="ctrl-label">Week</span>
+        <div class="week-pills" id="week-pills"></div>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Calls offered</div>
+        <div class="metric-val" id="m-offered">—</div>
+        <div class="metric-sub">contacts</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Links sent</div>
+        <div class="metric-val" id="m-links">—</div>
+        <div class="metric-sub" id="m-links-pct">—</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Calls booked</div>
+        <div class="metric-val" id="m-booked">—</div>
+        <div class="metric-sub" id="m-booked-pct">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Conversion funnel</div>
+      <div class="funnel-bars" id="funnel"></div>
+    </div>
+
+    <div class="card">
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#185FA5"></span>Calls offered</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#1D9E75"></span>Links sent</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#D85A30"></span>Calls booked</span>
+      </div>
+      <div class="section-title">Weekly breakdown</div>
+      <div class="chart-wrap">
+        <canvas id="weekChart" role="img" aria-label="Bar chart showing weekly calls offered, links sent and calls booked"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SHEET_ID = '1J4OoJkAXrXfgOw181CeXyYoBwHQY_5T2uqdUrPiHjHU';
+const GID_MAP = {
+  'January 2026':  '1703965093',
+  'February 2026': '1825065498',
+  'March 2026':    '749858471',
+  'April 2026':    '1600676041'
+  // Add new months here: 'May 2026': 'GID_HERE'
+};
+
+const WEEKS = ['WEEK 1','WEEK 2','WEEK 3','WEEK 4','WEEK 5'];
+let ALL_DATA = [];
+let selSetter = 'All setters', selMonth = 'all', selWeeks = new Set(WEEKS);
+let weekChart = null;
+
+function csvUrl(gid) {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`;
+}
+
+function parseCSV(text) {
+  const lines = text.split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g,'').trim());
+  return lines.slice(1).map(line => {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += line[i]; }
+    }
+    cols.push(cur.trim());
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (cols[i] || '').replace(/^"|"$/g,''));
+    return obj;
+  });
+}
+
+function extractData(rows, monthName) {
+  const results = [];
+  for (const row of rows) {
+    const firstKey = Object.keys(row)[0];
+    const weekRaw = (row[''] || row[firstKey] || '').toString().trim().toUpperCase();
+    if (!weekRaw.startsWith('WEEK')) continue;
+    const week = weekRaw.substring(0, 6).trim();
+    if (!WEEKS.includes(week)) continue;
+
+    const name = (row['NAME'] || '').replace(/\n/g,' ').trim();
+    if (!name || name.length < 2) continue;
+
+    const setter = (row['Setter'] || '').trim();
+    if (!setter) continue;
+
+    const mainShift = (row['Call Offered MAIN SHIFT'] || '').toUpperCase();
+    const adminShift = (row['Call Offered ADMIN SHIFT'] || '').toUpperCase();
+    let offered = 0;
+    if (mainShift === 'YES') offered++;
+    if (adminShift === 'YES') offered++;
+
+    const linkSent   = (row['Link sent']   || '').toUpperCase() === 'YES' ? 1 : 0;
+    const callBooked = (row['Call booked'] || '').toUpperCase() === 'YES' ? 1 : 0;
+
+    results.push({ month: monthName, week, setter, offered, linkSent, callBooked });
+  }
+  return results;
+}
+
+async function fetchMonth(monthName, gid) {
+  try {
+    const res = await fetch(csvUrl(gid));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    return extractData(parseCSV(text), monthName);
+  } catch(e) {
+    console.warn('Could not load', monthName, e);
+    return [];
+  }
+}
+
+async function loadAllData() {
+  const statusEl = document.getElementById('status-msg');
+  statusEl.className = 'status';
+  statusEl.textContent = 'Loading data from Google Sheets...';
+  statusEl.style.display = 'block';
+  document.getElementById('dashboard').style.display = 'none';
+
+  const results = await Promise.all(
+    Object.entries(GID_MAP).map(([name, gid]) => fetchMonth(name, gid))
+  );
+  ALL_DATA = results.flat();
+
+  if (ALL_DATA.length === 0) {
+    statusEl.className = 'status error';
+    statusEl.textContent = '⚠️ Could not load data. Make sure the Google Sheet is shared as "Anyone with the link can view".';
+    return;
+  }
+
+  statusEl.style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  buildControls();
+  render();
+}
+
+function buildControls() {
+  const months  = [...new Set(ALL_DATA.map(r => r.month))];
+  const setters = [...new Set(ALL_DATA.map(r => r.setter))].sort();
+
+  const setterSel = document.getElementById('setter-select');
+  setterSel.innerHTML = '';
+  ['All setters', ...setters].forEach(s => {
+    const o = document.createElement('option');
+    o.value = s; o.textContent = s;
+    setterSel.appendChild(o);
+  });
+  setterSel.value = selSetter;
+  setterSel.onchange = e => { selSetter = e.target.value; render(); };
+
+  const monthSel = document.getElementById('month-select');
+  monthSel.innerHTML = '<option value="all">All months</option>';
+  months.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m.replace(' 2026','');
+    monthSel.appendChild(o);
+  });
+  monthSel.value = selMonth;
+  monthSel.onchange = e => { selMonth = e.target.value; render(); };
+}
+
+function buildWeekPills() {
+  const c = document.getElementById('week-pills');
+  c.innerHTML = '';
+  const allP = document.createElement('span');
+  allP.className = 'pill' + (selWeeks.size === 5 ? ' active' : '');
+  allP.textContent = 'All';
+  allP.onclick = () => { selWeeks = new Set(WEEKS); buildWeekPills(); render(); };
+  c.appendChild(allP);
+  WEEKS.forEach(w => {
+    const p = document.createElement('span');
+    p.className = 'pill' + (selWeeks.has(w) ? ' active' : '');
+    p.textContent = w.replace('WEEK ','W');
+    p.onclick = () => {
+      if (selWeeks.has(w)) { if (selWeeks.size > 1) selWeeks.delete(w); }
+      else selWeeks.add(w);
+      buildWeekPills(); render();
+    };
+    c.appendChild(p);
+  });
+}
+
+function pct(a, b) { return b > 0 ? Math.round(a / b * 100) : 0; }
+
+function render() {
+  buildWeekPills();
+
+  const filtered = ALL_DATA.filter(r => {
+    if (selSetter !== 'All setters' && r.setter !== selSetter) return false;
+    if (selMonth !== 'all' && r.month !== selMonth) return false;
+    if (!selWeeks.has(r.week)) return false;
+    return true;
+  });
+
+  const tot = { offered: 0, links: 0, booked: 0 };
+  filtered.forEach(r => { tot.offered += r.offered; tot.links += r.linkSent; tot.booked += r.callBooked; });
+
+  document.getElementById('m-offered').textContent = tot.offered;
+  document.getElementById('m-links').textContent = tot.links;
+  document.getElementById('m-links-pct').textContent = pct(tot.links, tot.offered) + '% of offered';
+  document.getElementById('m-booked').textContent = tot.booked;
+  document.getElementById('m-booked-pct').textContent = pct(tot.booked, tot.links) + '% of links sent';
+
+  const funnelEl = document.getElementById('funnel');
+  funnelEl.innerHTML = '';
+  const fRows = [
+    { label: 'Calls offered', val: tot.offered, pctBase: 100,                          color: '#185FA5' },
+    { label: 'Links sent',    val: tot.links,   pctBase: pct(tot.links,  tot.offered), color: '#1D9E75' },
+    { label: 'Calls booked',  val: tot.booked,  pctBase: pct(tot.booked, tot.offered), color: '#D85A30' },
+  ];
+  fRows.forEach((row, i) => {
+    const div = document.createElement('div'); div.className = 'funnel-row';
+    div.innerHTML = `<div class="funnel-bar-label">${row.label}</div>
+      <div class="funnel-bar-track"><div class="funnel-bar-fill" style="width:${Math.max(2,row.pctBase)}%;background:${row.color}">
+      <span class="funnel-bar-text">${row.val}</span></div></div>
+      <div class="funnel-pct">${row.pctBase}%</div>`;
+    funnelEl.appendChild(div);
+    if (i < fRows.length - 1) {
+      const arrow = document.createElement('div'); arrow.className = 'drop-arrow';
+      const dp = i === 0 ? pct(tot.links, tot.offered) : pct(tot.booked, tot.links);
+      const dl = i === 0 ? 'link rate' : 'book rate';
+      arrow.innerHTML = `&#8595; ${dp}% ${dl}`;
+      funnelEl.appendChild(arrow);
+    }
+  });
+
+  const monthsToShow = selMonth === 'all'
+    ? [...new Set(ALL_DATA.map(r => r.month))]
+    : [selMonth];
+  const weekArr = [...selWeeks].sort();
+
+  const labels = [], offD = [], linksD = [], bookedD = [];
+  monthsToShow.forEach(m => {
+    weekArr.forEach(w => {
+      const match = filtered.filter(r => r.month === m && r.week === w);
+      if (!match.length) return;
+      const agg = { offered: 0, links: 0, booked: 0 };
+      match.forEach(r => { agg.offered += r.offered; agg.links += r.linkSent; agg.booked += r.callBooked; });
+      labels.push(m.replace(' 2026','') + ' ' + w.replace('WEEK','W'));
+      offD.push(agg.offered); linksD.push(agg.links); bookedD.push(agg.booked);
+    });
+  });
+
+  if (weekChart) weekChart.destroy();
+  weekChart = new Chart(document.getElementById('weekChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Calls offered', data: offD,    backgroundColor: '#185FA5CC', borderWidth: 0 },
+      { label: 'Links sent',    data: linksD,  backgroundColor: '#1D9E75CC', borderWidth: 0 },
+      { label: 'Calls booked',  data: bookedD, backgroundColor: '#D85A30CC', borderWidth: 0 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false,
+          callbacks: { afterBody: items => {
+            const o = items.find(i => i.datasetIndex===0)?.raw || 0;
+            const l = items.find(i => i.datasetIndex===1)?.raw || 0;
+            const b = items.find(i => i.datasetIndex===2)?.raw || 0;
+            return [`Link rate: ${pct(l,o)}%`, `Book rate: ${pct(b,l)}%`];
+          }}
+        }
+      },
+      scales: {
+        x: { ticks: { color:'#888', font:{size:11}, maxRotation:45, autoSkip:false }, grid:{display:false} },
+        y: { ticks: { color:'#888', font:{size:11} }, grid:{color:'rgba(0,0,0,0.06)'} }
+      }
+    }
+  });
+}
+
+document.getElementById('refresh-btn').onclick = loadAllData;
+loadAllData();
+</script>
+</body>
+</html>
